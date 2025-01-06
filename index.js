@@ -1,21 +1,18 @@
+const { WebServiceClient } = require('@maxmind/geoip2-node');
 const axios = require('axios');
 const express = require('express');
 const app = express();
 require('dotenv').config()
 
 
+const accountId = process.env.ACCOUNT_ID;  // Replace with your account ID
+const licenseKey = process.env.LICENSE_KEY;
 const port = process.env.PORT || 3000;
 
-/**
- * Get user details by IP address using MaxMind's GeoIP2 API
- * @param {string} ipAddress - The IP address of the user
- * @returns {Object} - User details (e.g., country, city, etc.)
- */
+
+
 async function getUserDetailsByIP(ipAddress) {
     try {
-        // Replace with your MaxMind API credentials
-        const accountId = process.env.ACCOUNT_ID;  // Replace with your account ID
-        const licenseKey = process.env.LICENSE_KEY; // Replace with your license key
 
         // API endpoint for GeoIP2 Precision Web Services
         const url = `https://geoip.maxmind.com/geoip/v2.1/city/${ipAddress}?pretty`;
@@ -32,11 +29,18 @@ async function getUserDetailsByIP(ipAddress) {
 
         // Return the parsed user details
         return {
+            ip: data.traits.ip_address || 'Unknown',
+            isp: data.traits.organization || 'Unknown',
+            connectionType: data.traits.connection_type || 'Unknown',
             country: data.country?.names?.en || 'Unknown',
+            countryCode2: data.country?.iso_code || 'Unknown',
             city: data.city?.names?.en || 'Unknown',
+            region: data.subdivisions[0]?.iso_code || 'Unknown',
+            regionName: data.subdivisions[0]?.names?.en || 'Unknown',
             latitude: data.location?.latitude || 'Unknown',
             longitude: data.location?.longitude || 'Unknown',
-            timeZone: data.location?.time_zone || 'Unknown',
+            Zip: data.postal?.code || 'Unknown',
+
         };
     } catch (error) {
         console.error('Error retrieving user details:', error.message);
@@ -53,8 +57,6 @@ async function getUserDetailsByIP(ipAddress) {
 
 app.get('/', async (req, res) => {
     let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-    console.log(req.headers);
-
 
     ip = ip.split(',')[0].trim(); // Use the first IP in case of a list
     if (ip.includes('::ffff:')) ip = ip.replace('::ffff:', ''); // Handle IPv4-mapped IPv6 address
@@ -69,6 +71,28 @@ app.get('/', async (req, res) => {
     });
 });
 
+app.get('/ip', async (req, res) => {
+    const client = new WebServiceClient(accountId, licenseKey);
+
+    try {
+        // Get the IP address from headers or connection
+        let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+        ip = ip.split(',')[0].trim();
+
+        // Handle IPv6 addresses with embedded IPv4
+        if (ip.includes('::ffff:')) ip = ip.replace('::ffff:', '');
+
+        // Fetch location data for the IP
+        const response = await client.city(ip);
+
+        // Extract country code and send the full response
+        console.log(response.country.isoCode);
+        res.send(response);
+    } catch (error) {
+        console.error('Error fetching IP information:', error);
+        res.status(500).send({ error: 'Failed to retrieve IP information' });
+    }
+});
 app.listen(3000, () => {
     console.log('Server running on port 3000');
 });
